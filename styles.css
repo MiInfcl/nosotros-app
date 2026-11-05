@@ -294,7 +294,7 @@ a { color: var(--accent); }
 .dlrow b { justify-self: start; }
 .dlhead { border-top: 0; font-size: 0.75rem; color: var(--muted); text-align: center; padding-bottom: 0; }
 
-.gmark { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: #4285f4; font-weight: 800; font-size: 0.85rem; margin-right: 6px; }
+.gmark { display: inline-block; width: 20px; height: 20px; flex: none; margin-right: 8px; vertical-align: -4px; }
 
 /* Chat: audios, una sola vez, escribiendo */
 .composer .hidden { display: none !important; }
