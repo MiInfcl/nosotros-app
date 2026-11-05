@@ -413,3 +413,7 @@ main.chatmain.enter-r, main.chatmain.enter-l { animation: fadeIn 0.18s ease-out;
 .rxpick:active { transform: scale(1.18); }
 .rxpick.on { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
 .rxpick.more { background: var(--surface2); }
+
+/* Barra de descarga de la actualización */
+.updbar { height: 10px; border-radius: 999px; background: var(--surface2); overflow: hidden; }
+.updbar > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }

@@ -8,6 +8,7 @@ import * as MD from './lib/media.js';
 import { createChat } from './lib/chat.js';
 import { Prefs, DL_KINDS } from './lib/prefs.js';
 import { confetti } from './lib/confetti.js';
+import { applyTabDisguise } from './lib/disguise.js';
 import { getNet, onNet } from './lib/net.js';
 
 const Theme = window.Theme;
@@ -26,6 +27,11 @@ let dirty = false;
 let welcomeName = '';
 let authMode = 'signup'; // 'signup' | 'login'
 let nativeStatus = null;
+
+// App de Android: se descarga de GitHub (repositorio con el APK en sus «Releases»).
+const APP_PAGE_URL = 'https://github.com/MiInfcl/nosotros-android/releases/latest';
+const APP_APK_URL = 'https://github.com/MiInfcl/nosotros-android/releases/latest/download/Nosotros.apk';
+let updateState = { checking: false, info: null, error: null, progress: null, checkedAt: 0 };
 let pushedCfg = '';
 let autoSynced = false;
 let lastReadAt = Number(safeGet('parejas-read') || 0);
@@ -183,6 +189,10 @@ function seenBody(since, now) {
 function viewHome() {
   const now = new Date();
   const cards = [];
+  if (isNative && updateState.info?.available) {
+    cards.push(`<div class="card"><h2>${ic('download')} Hay una versión nueva</h2>
+      <p class="muted">La versión ${esc(updateState.info.name)} de Nosotros está lista para instalar.</p><button class="btn" data-act="upd-open">Ver y actualizar</button></div>`);
+  }
   if (!S.partner) {
     cards.push(`<div class="card"><h2>⏳ Esperando a tu pareja</h2>
       <p class="muted">Pásale este código para que se una:</p><div class="code">${esc(S.coupleId)}</div></div>`);
@@ -726,19 +736,23 @@ const SET_PAGES = [
   ['widgets', 'sparkle', 'Widgets', 'Pantalla de inicio: calendario, ciclo, distancia…'],
   ['seguridad', 'lock', 'Seguridad', 'Huella o PIN al abrir y contraseña de la pareja'],
   ['disfraz', 'eye', 'Ocultar la app', 'Cambia el ícono y el nombre para que parezca otra app'],
+  ['actualizar', 'download', isNative ? 'Actualizaciones' : 'App de Android', isNative ? 'Versión instalada y novedades' : 'Descárgala: widgets, ubicación automática y más'],
   ['cuenta', 'user', 'Cuenta', 'Correo, Google y cerrar sesión'],
 ];
 
+// En el navegador, estas filas no abren una página: ofrecen descargar la app.
+const APP_ONLY_ROWS = { widgets: 'Los widgets', actualizar: 'La app de Android' };
+
 function viewSettings() {
   if (!settingsPage) return settingsMenu();
-  const pages = { perfil: pagePerfil, apariencia: pageApariencia, ubicacion: pageUbicacion, calendario: pageCalendario, ciclo: pageCiclo, chat: pageChat, avisos: pageAvisos, widgets: pageWidgets, seguridad: pageSeguridad, disfraz: pageDisfraz, cuenta: pageCuenta };
+  const pages = { perfil: pagePerfil, apariencia: pageApariencia, ubicacion: pageUbicacion, calendario: pageCalendario, ciclo: pageCiclo, chat: pageChat, avisos: pageAvisos, widgets: pageWidgets, seguridad: pageSeguridad, disfraz: pageDisfraz, actualizar: pageActualizar, cuenta: pageCuenta };
   const row = SET_PAGES.find((p) => p[0] === settingsPage);
   return `<div class="row setback"><button class="iconbtn flat" data-act="set-back" aria-label="Volver a Ajustes">${ic('back', 22)}</button><h2>${row[2]}</h2></div>${pages[settingsPage]()}`;
 }
 
 function settingsMenu() {
   const rows = SET_PAGES.filter((p) => !(p[0] === 'ciclo' && S.me?.gender === 'hombre'))
-    .map(([id, icon, title, sub]) => `<button class="setrow" data-act="set-page" data-page="${id}"><span class="seticon">${ic(icon, 22)}</span><span class="settext"><b>${title}</b><span class="muted small">${sub}</span></span>${ic('chevron', 18)}</button>`).join('');
+    .map(([id, icon, title, sub]) => `<button class="setrow" data-act="${!isNative && APP_ONLY_ROWS[id] ? 'app-only' : 'set-page'}" data-page="${id}" data-what="${esc(APP_ONLY_ROWS[id] || '')}"><span class="seticon">${ic(icon, 22)}</span><span class="settext"><b>${title}</b><span class="muted small">${sub}</span></span>${ic('chevron', 18)}</button>`).join('');
   return `<div class="card setlist">${rows}</div>
     <div class="card stack">${store.kind === 'demo'
       ? '<button class="btn ghost" data-act="leave">Borrar datos de la demo</button>'
@@ -772,7 +786,7 @@ function pageUbicacion() {
       <p class="muted small" style="margin:0">Viene activado. Si lo apagas, tu ubicación no se sube y se borra la que ya estaba guardada; tu pareja verá que no la compartes y no se podrá detectar cuándo están juntos.</p></div>
     <div class="card stack"><h2>${ic('pin')} Mi ubicación</h2>
       <p class="muted small" style="margin:0">Se guarda aproximada (unos 1–2 km) y solo la ve tu pareja. ${me.city ? `Ahora: <b>${esc(me.city)}</b>` : ''}${me.locAt ? ` · actualizada ${new Date(me.locAt).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}` : ''}</p>
-      ${isNative ? nativeLocationControls() : '<button class="btn ghost" data-act="geo">Usar mi ubicación actual</button>'}
+      ${isNative ? nativeLocationControls() : `<button class="btn ghost" data-act="geo">Usar mi ubicación actual</button>${appOnlyBtn('Ubicación automática cada 30 min', 'La ubicación automática en segundo plano')}`}
       <details><summary class="muted small">Poner la ciudad a mano</summary>
         <div class="row" style="margin-top:8px"><input type="text" id="cityin" placeholder="Ciudad, país" value="${esc(me.city || '')}" aria-label="Ciudad"><button class="btn small" data-act="city-search">Buscar</button></div></details></div>`;
 }
@@ -783,11 +797,11 @@ function pageCalendario() {
   const st = nativeStatus;
   return `<div class="card stack"><h2>${ic('calendar')} Mi calendario</h2>
       <p class="muted small" style="margin:0">${calOk ? `Sincronizado ${new Date(calOk).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })} (${(me.events || []).length} eventos próximos).` : 'Se leen los eventos del calendario de tu teléfono (el de Google incluido) de los próximos 60 días.'}</p>
-      ${isNative ? nativeCalendarControls() : '<button class="btn" data-act="cal">' + (calOk ? 'Actualizar' : 'Cargar calendario (demo)') + '</button>'}
+      ${isNative ? nativeCalendarControls() : store.kind === 'demo' ? '<button class="btn" data-act="cal">' + (calOk ? 'Actualizar' : 'Cargar calendario (demo)') + '</button>' : appOnlyBtn('Leer el calendario de mi teléfono', 'Leer el calendario del teléfono', 'btn')}
       <label class="check"><input type="checkbox" data-field="me.hideTitles" ${me.hideTitles ? 'checked' : ''}> Ocultar los nombres de mis eventos</label>
       <p class="muted small" style="margin:0">Por defecto tu pareja ve cómo se llaman tus eventos. Si lo activas, solo verá «Ocupado» en esas horas.</p></div>
     <div class="card stack"><h2>${ic('heart')} Citas para verse</h2>
-      <label class="check"><input type="checkbox" data-pref="meetToCal" ${Prefs.get().meetToCal ? 'checked' : ''}> Poner las citas en el calendario de mi teléfono</label>
+      ${isNative || store.kind === 'demo' ? `<label class="check"><input type="checkbox" data-pref="meetToCal" ${Prefs.get().meetToCal ? 'checked' : ''}> Poner las citas en el calendario de mi teléfono</label>` : appOnlyBtn('Poner las citas en el calendario del teléfono', 'Poner las citas en el calendario del teléfono')}
       <p class="muted small" style="margin:0">Quedan marcadas como «libre» y la app las reconoce: ese tiempo no cuenta como ocupado al buscar fechas.</p>
       ${isNative && Prefs.get().meetToCal && st && !st.calendarWrite ? '<button class="btn" data-act="cal-write-perm">Permitir crear eventos en mi calendario</button>' : ''}</div>`;
 }
@@ -830,7 +844,7 @@ function pageChat() {
       ${isNative
         ? `<label class="check"><input type="checkbox" data-pref="gallery" ${p.gallery ? 'checked' : ''}> Guardar en la galería las fotos y videos del chat</label>
            <p class="muted small" style="margin:0">Se guardan en la carpeta «Nosotros». Las fotos y videos «de una sola vez» nunca se guardan. Para guardar o compartir una sola foto o video, mantenla presionada en el chat.</p>`
-        : '<p class="muted small" style="margin:0">Disponible en la app de Android.</p>'}</div>
+        : appOnlyBtn('Guardar en la galería automáticamente', 'Guardar en la galería')}</div>
     <div class="card stack"><h2>${ic('image')} Calidad de las fotos</h2>
       <label class="check"><input type="checkbox" data-pref="hd" ${p.hd ? 'checked' : ''}> Enviar las fotos en HD por defecto</label>
       <p class="muted small" style="margin:0">Normal: hasta 1080p y 300 KB. HD: hasta 1440p y 400 KB. Siempre en WebP. En el clip del chat puedes cambiarlo en cada envío.</p></div>
@@ -848,7 +862,10 @@ function pageAvisos() {
   if (!isNative) {
     return `<div class="card stack"><h2>${ic('bell')} Avisos</h2>
       <button class="btn ghost" data-act="notif">${'Notification' in window && Notification.permission === 'granted' ? 'Avisos de mensajes activados' : 'Activar avisos de mensajes'}</button>
-      <p class="muted small" style="margin:0">Llegan cuando la app está abierta (o en segundo plano).</p></div>`;
+      <p class="muted small" style="margin:0">Llegan cuando la página está abierta (o en segundo plano).</p></div>
+      <div class="card stack"><h2>${ic('navigation')} Avisos al instante</h2>
+      <p class="muted small" style="margin:0">Con la app de Android te avisa de un mensaje nuevo aunque esté cerrada.</p>
+      ${appOnlyBtn('Avisos con la app cerrada', 'Los avisos con la app cerrada')}</div>`;
   }
   const st = nativeStatus;
   return `<div class="card stack"><h2>${ic('bell')} Mensajes</h2>
@@ -874,7 +891,7 @@ const WIDGET_LIST = [
 ];
 
 function pageWidgets() {
-  if (!isNative) return '<div class="card"><p class="muted" style="margin:0">Los widgets están disponibles en la app de Android.</p></div>';
+  if (!isNative) return `<div class="card stack"><p class="muted" style="margin:0">Los widgets están disponibles en la app de Android.</p>${appOnlyBtn('Descargar la app', 'Los widgets', 'btn')}</div>`;
   const st = nativeStatus;
   const p = Prefs.get();
   const rows = WIDGET_LIST.map(([k, icon, name, size]) => `<div class="wrow"><span class="seticon">${ic(icon, 22)}</span><span class="settext"><b>${name}</b><span class="muted small">Tamaño inicial ${size}; se puede estirar y achicar</span></span>${st?.widgetPin ? `<button class="btn ghost small" data-act="widget-pin" data-kind="${k}">Agregar</button>` : ''}</div>`).join('');
@@ -895,7 +912,9 @@ function pageSeguridad() {
         <label class="check"><input type="checkbox" id="lockon" ${nativeStatus?.lock ? 'checked' : ''}><span>Pedir huella o PIN del teléfono al abrir</span></label>
         <span class="chip ${nativeStatus?.lock ? 'fertile' : ''}">${nativeStatus?.lock ? ic('check', 14) + ' Activado' : 'Desactivado'}</span>
         <p class="muted small" style="margin:0">Se pide al abrir la app y al volver tras un rato. También oculta la vista previa en las apps recientes.</p></div>`
-    : '';
+    : `<div class="card stack"><h2>${ic('finger')} Bloqueo de la app</h2>
+        <p class="muted small" style="margin:0">En la app de Android puedes pedir huella o PIN del teléfono al abrir.</p>
+        ${appOnlyBtn('Bloqueo con huella o PIN', 'El bloqueo con huella o PIN')}</div>`;
   return `${lock}<div class="card stack"><h2>${ic('key')} Contraseña de la pareja</h2>
       <p class="muted small" style="margin:0">${prot ? 'Hay una contraseña puesta: aunque alguien conozca el código, no puede unirse sin ella.' : 'Sin contraseña, quien adivine el código de 6 letras podría unirse a la pareja. Pon una para evitarlo.'}</p>
       <label class="field">${prot ? 'Contraseña nueva' : 'Contraseña'}<input type="password" id="cpass" autocomplete="new-password" minlength="4" maxlength="60"></label>
@@ -912,13 +931,85 @@ const DISGUISES = [
 ];
 
 function pageDisfraz() {
-  if (!isNative) return '<div class="card"><p class="muted" style="margin:0">Disponible en la app de Android.</p></div>';
-  const cur = nativeStatus?.disguise || 'nosotros';
+  const cur = isNative ? (nativeStatus?.disguise || 'nosotros') : (Prefs.get().disguise || 'nosotros');
   return `<div class="card stack"><h2>${ic('eye')} Ocultar la app</h2>
-      <p class="muted small" style="margin:0">Elige cómo se ve en el cajón de apps: cambia el ícono y el nombre. Dentro, la app sigue igual.</p>
+      <p class="muted small" style="margin:0">${isNative ? 'Elige cómo se ve en el cajón de apps: cambia el ícono y el nombre. Dentro, la app sigue igual.' : 'Elige cómo se ve esta pestaña del navegador: cambia el nombre y el ícono. La elección se sincroniza con la app de Android (cambia el ícono del teléfono) y con tu cuenta.'}</p>
       ${DISGUISES.map(([k, name, icon, color]) => `<button class="disg" data-act="disguise" data-key="${k}" aria-pressed="${k === cur}"><span class="dico" style="background:${color}">${ic(icon, 26, k === 'nosotros')}</span><b>${name}</b>${k === cur ? ic('check', 20) : '<span></span>'}</button>`).join('')}
-      <p class="muted small" style="margin:0">Al cambiar, el ícono anterior desaparece (también de la pantalla de inicio): el nuevo queda en el cajón de apps y puedes volver a ponerlo en inicio. Las notificaciones y «Ajustes del teléfono → Aplicaciones» siguen diciendo «Nosotros».</p></div>`;
+      <p class="muted small" style="margin:0">${isNative ? 'Al cambiar, el ícono anterior desaparece (también de la pantalla de inicio): el nuevo queda en el cajón de apps y puedes volver a ponerlo en inicio. Las notificaciones y «Ajustes del teléfono → Aplicaciones» siguen diciendo «Nosotros».' : 'Solo cambia la pestaña de este navegador. En el teléfono, el cambio se aplica cuando la app se sincronice con tu cuenta.'}</p></div>`;
 }
+
+/** Botón para una opción que solo existe en la app de Android: al tocarlo ofrece descargarla. */
+function appOnlyBtn(label, what, cls = 'btn ghost') {
+  return `<button type="button" class="${cls}" data-act="app-only" data-what="${esc(what)}">${ic('phone', 18)} ${esc(label)}</button>`;
+}
+
+async function askApp(what) {
+  const go = await askSheet({
+    title: 'Solo en la app de Android',
+    body: `${what} solo está disponible en la app de Android. ¿Quieres descargarla ahora?`,
+    ok: 'Descargar',
+    tone: 'primary',
+  });
+  if (!go) return;
+  const android = /Android/i.test(navigator.userAgent);
+  window.open(android ? APP_APK_URL : APP_PAGE_URL, '_blank', 'noopener');
+  if (!android) toast('Ábrela desde el navegador de tu teléfono Android para instalarla');
+}
+
+/* ------------------------------------------------------------ actualizar la app desde GitHub */
+
+function fmtMB(b) {
+  return `${(b / 1048576).toFixed(1).replace('.', ',')} MB`;
+}
+
+function pageActualizar() {
+  if (!isNative) return `<div class="card stack"><p class="muted" style="margin:0">La app de Android se descarga de GitHub.</p>${appOnlyBtn('Descargar la app', 'La app de Android', 'btn')}</div>`;
+  const u = updateState;
+  const cur = nativeStatus?.versionName ? `${nativeStatus.versionName} (${nativeStatus.versionCode})` : '…';
+  let body;
+  if (u.progress != null) {
+    body = `<p class="muted small" style="margin:0">Descargando la versión nueva… ${Math.round(u.progress * 100)}%</p><div class="updbar"><span id="updbar" style="width:${Math.round(u.progress * 100)}%"></span></div>`;
+  } else if (u.info?.available) {
+    body = `<p style="margin:0"><b>Hay una versión nueva: ${esc(u.info.name)}</b>${u.info.size ? ` · ${fmtMB(u.info.size)}` : ''}</p>
+      ${u.info.notes ? `<p class="muted small" style="margin:0;white-space:pre-wrap">${esc(u.info.notes)}</p>` : ''}
+      <button class="btn" data-act="upd-install">Descargar e instalar</button>
+      <p class="muted small" style="margin:0">La primera vez, Android te pedirá permitir que Nosotros instale apps: actívalo y vuelve a tocar el botón. Tus datos y ajustes se conservan.</p>`;
+  } else if (u.checking) {
+    body = '<p class="muted" style="margin:0">Buscando…</p>';
+  } else if (u.error) {
+    body = `<p class="muted" style="margin:0">No se pudo buscar ahora (${esc(u.error)}). Revisa tu conexión.</p><button class="btn ghost" data-act="upd-check">Reintentar</button>`;
+  } else {
+    body = `<p class="muted" style="margin:0">${u.checkedAt ? 'Tienes la última versión.' : 'Aún no se ha buscado.'}</p><button class="btn ghost" data-act="upd-check">Buscar actualización</button>`;
+  }
+  return `<div class="card stack"><h2>${ic('download')} Actualizaciones</h2>
+      <div class="muted small">Versión instalada: <b>${esc(cur)}</b></div>${body}
+      <p class="muted small" style="margin:0">Las versiones nuevas se publican en GitHub (MiInfcl/nosotros-android) y la app las descarga de ahí.</p></div>`;
+}
+
+async function checkUpdate(manual = false) {
+  if (!isNative || updateState.checking || updateState.progress != null) return;
+  updateState = { ...updateState, checking: true, error: null };
+  if (manual) render();
+  const r = await native.checkUpdate();
+  updateState = { ...updateState, checking: false, checkedAt: Date.now(), error: r.ok ? null : (r.error || 'error'), info: r.ok ? r : null };
+  safeSet('parejas-upd-check', String(Date.now()));
+  if (manual && r.ok) toast(r.available ? `Hay una versión nueva: ${r.name}` : 'Tienes la última versión');
+  render();
+}
+
+let autoUpdateChecked = false;
+function autoCheckUpdate() {
+  if (!isNative || autoUpdateChecked) return;
+  autoUpdateChecked = true;
+  if (Date.now() - Number(safeGet('parejas-upd-check') || 0) < 12 * 3600 * 1000) return;
+  checkUpdate(false);
+}
+
+window.__updateProgress = (p) => {
+  updateState.progress = p;
+  const el = document.getElementById('updbar');
+  if (el) el.style.width = `${Math.round(p * 100)}%`;
+};
 
 function pageCuenta() {
   return `<div class="card stack"><h2>${ic('user')} Cuenta</h2>
@@ -1159,6 +1250,7 @@ function queueSettingsUp() {
   if (applyingRemote || !S.signedIn || !S.uid || store.kind !== 'firebase' || settingsPulledFor !== S.uid) return;
   clearTimeout(settingsTimer);
   settingsTimer = setTimeout(async () => {
+    settingsTimer = null;
     const snap = settingsSnapshot();
     const j = JSON.stringify(snap);
     if (j === lastSettingsJson) return;
@@ -1199,9 +1291,41 @@ async function pullSettings() {
     } else {
       queueSettingsUp(); // lo de este teléfono es más nuevo, o aún no hay nada guardado
     }
+    reconcileDisguise();
   } catch (e) {
     settingsPulledFor = null;
     console.warn('ajustes', e);
+  }
+}
+
+/** Vuelve a mirar el servidor (otro dispositivo pudo cambiar los ajustes): al volver a la pestaña y cada ~45 s mientras se ve. */
+let lastSettingsPull = 0;
+function refreshSettings() {
+  if (!S.signedIn || settingsTimer || Date.now() - lastSettingsPull < 20000) return;
+  lastSettingsPull = Date.now();
+  settingsPulledFor = null;
+  pullSettings();
+}
+setInterval(() => { if (document.visibilityState === 'visible') refreshSettings(); }, 45000);
+
+/** El disfraz elegido (en cualquier dispositivo) se aplica aquí: ícono del teléfono en la app, nombre e ícono de la pestaña en el navegador. */
+let disguiseBusy = false;
+async function reconcileDisguise() {
+  if (!isNative) { applyTabDisguise(Prefs.get().disguise || 'nosotros'); return; }
+  if (disguiseBusy) return;
+  disguiseBusy = true;
+  try {
+    if (!nativeStatus) nativeStatus = await native.status();
+    const want = Prefs.get().disguise;
+    const actual = nativeStatus?.disguise || 'nosotros';
+    if (!want) {
+      if (actual !== 'nosotros') Prefs.set({ disguise: actual }); // lo que ya tenía este teléfono se sube a la cuenta
+    } else if (want !== actual) {
+      const r = await native.setDisguise(want);
+      if (r.ok) setTimeout(async () => { nativeStatus = await native.status(); render(); }, 900);
+    }
+  } finally {
+    disguiseBusy = false;
   }
 }
 
@@ -1322,6 +1446,7 @@ function onSnapshot(next) {
   const before = S.coupleId;
   S = next;
   setTimeout(maybeAnniversaryConfetti, 500);
+  setTimeout(autoCheckUpdate, 4000);
   pullSettings();
   pushWidgets();
   if (before && !next.coupleId && next.coupleGone) {
@@ -1366,14 +1491,14 @@ function maybeNotify(m) {
 }
 
 /** Cuadro de confirmación con el estilo de la app. Con `type`, hay que escribir ese texto para poder confirmar. */
-function askSheet({ title, body, ok, type = '' }) {
+function askSheet({ title, body, ok, type = '', tone = 'danger' }) {
   return new Promise((resolve) => {
     const rootEl = document.getElementById('sheet-root');
     rootEl.innerHTML = `<div class="sheet-back" data-ask-cancel><div class="sheet" role="dialog" aria-label="${esc(title)}">
       <div class="sheet-preview"><b>${esc(title)}</b></div>
       <p class="muted" style="margin:6px 10px 12px">${esc(body)}</p>
       ${type ? `<label class="field" style="margin:0 10px 12px"><span>Escribe <b>${esc(type)}</b> para confirmar</span><input type="text" id="askin" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>` : ''}
-      <div class="row"><button type="button" class="btn ghost" data-ask-cancel style="flex:1">Cancelar</button><button type="button" class="btn dangerfull" data-ask-ok style="flex:1" ${type ? 'disabled' : ''}>${esc(ok)}</button></div></div></div>`;
+      <div class="row"><button type="button" class="btn ghost" data-ask-cancel style="flex:1">Cancelar</button><button type="button" class="btn${tone === 'danger' ? ' dangerfull' : ''}" data-ask-ok style="flex:1" ${type ? 'disabled' : ''}>${esc(ok)}</button></div></div></div>`;
     const done = (v) => { rootEl.innerHTML = ''; rootEl.removeEventListener('click', onClick); rootEl.removeEventListener('input', onInput); resolve(v); };
     const onClick = (e) => {
       if (e.target.closest('[data-ask-ok]')) done(true);
@@ -1716,14 +1841,37 @@ const actions = {
     render();
     if (r !== 'granted') throw new Error('No diste permiso');
   }, 'Avisos activados'),
+  'app-only': (el) => askApp(el.dataset.what || 'Esta opción'),
+  'upd-check': () => checkUpdate(true),
+  'upd-open': () => { tab = 'ajustes'; settingsPage = 'actualizar'; render(); window.scrollTo(0, 0); },
+  'upd-install': () => run(async () => {
+    const info = updateState.info;
+    if (!info?.url) throw new Error('No hay una versión para instalar');
+    updateState.progress = 0;
+    render();
+    const r = await native.installUpdate(info.url, info.size || 0);
+    updateState.progress = null;
+    render();
+    if (!r.ok) throw new Error(r.error === 'permission' ? 'Permite instalar desde Nosotros y vuelve a tocar «Descargar e instalar»' : 'No se pudo descargar la actualización');
+  }),
   disguise: (el) => {
     const key = el.dataset.key;
     const name = DISGUISES.find((d) => d[0] === key)?.[1];
-    if (!name || key === (nativeStatus?.disguise || 'nosotros')) return;
+    if (!name) return;
+    if (!isNative) {
+      if (key === (Prefs.get().disguise || 'nosotros')) return;
+      Prefs.set({ disguise: key });
+      applyTabDisguise(key);
+      render();
+      toast(`Ahora la pestaña aparece como «${name}»`);
+      return;
+    }
+    if (key === (nativeStatus?.disguise || 'nosotros')) return;
     if (!confirm(`¿Cambiar el ícono y el nombre a «${name}»? El ícono actual desaparecerá y el nuevo aparecerá en el cajón de apps en unos segundos.`)) return;
     run(async () => {
       const r = await native.setDisguise(key);
       if (!r.ok) throw new Error('No se pudo cambiar el ícono');
+      Prefs.set({ disguise: key });
       nativeStatus = await native.status();
       render();
     }, `Ahora aparece como «${name}»`);
@@ -1939,7 +2087,7 @@ const chat = createChat({
   share: isNative ? (blob, name) => native.shareMedia(blob, name).then((r) => { if (!r.ok) throw new Error('No se pudo compartir'); }) : null,
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { pushWidgets(true); setTimeout(maybeAnniversaryConfetti, 400); } // el tema del teléfono pudo cambiar
+  if (document.visibilityState === 'visible') { pushWidgets(true); setTimeout(maybeAnniversaryConfetti, 400); refreshSettings(); } // el tema del teléfono pudo cambiar
   chat.ack();
   if (isNative && document.visibilityState === 'visible' && tab === 'chat') native.seen();
 });
@@ -1960,7 +2108,8 @@ store.onTyping = (d) => chat.setPartnerTyping(d);
 applyColors();
 Theme.onChange(applyColors);
 Theme.onChange(() => setTimeout(() => pushWidgets(), 50));
-Prefs.onChange(() => queueSettingsUp());
+Prefs.onChange(() => { queueSettingsUp(); if (!isNative) applyTabDisguise(Prefs.get().disguise || 'nosotros'); });
+reconcileDisguise();
 Theme.onChange(() => queueSettingsUp());
 onNet(() => chat.refresh());
 /** Abre una pestaña; con `day` ('AAAA-MM-DD') la agenda queda en ese día (la usan los widgets y los avisos). */
