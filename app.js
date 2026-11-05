@@ -25,6 +25,9 @@ let selDay = C.ymd(new Date());
 let showForm = null; // null | {} (nueva) | {id,...} (editar)
 let dirty = false;
 let welcomeName = '';
+// Alta guiada (nombre -> género y orientación -> crear o unirse a una pareja)
+let obGender = '', obOrient = '', obPartner = '', obRename = false, obCpass = '', obCode = '', obJpass = '';
+let pairMode = null; // null | 'create' | 'join'
 let authMode = 'signup'; // 'signup' | 'login'
 let nativeStatus = null;
 
@@ -83,6 +86,13 @@ const hasLoc = (p) => p && p.lat != null && p.lon != null;
 const GENDERS = [['mujer', 'Mujer'], ['hombre', 'Hombre'], ['nobinario', 'No binario'], ['otro', 'Otro / prefiero no decir']];
 const GENDER_NAME = { mujer: 'mujer', hombre: 'hombre', nobinario: 'persona no binaria', otro: 'otra identidad' };
 
+const ORIENTS = [['hetero', 'Heterosexual'], ['gay', 'Gay o lesbiana'], ['bi', 'Bisexual'], ['pan', 'Pansexual'], ['asex', 'Asexual'], ['otra', 'Otra'], ['nodecir', 'Prefiero no decir']];
+
+/** Botones para elegir una opción (en vez del selector de Android): data-act="ob-pick" con la clave y el valor. */
+function optButtons(key, list, selected) {
+  return `<div class="opts" role="radiogroup">${list.map(([v, l]) => `<button type="button" class="opt ${v === selected ? 'on' : ''}" role="radio" aria-checked="${v === selected}" data-act="ob-pick" data-k="${key}" data-v="${v}">${esc(l)}</button>`).join('')}</div>`;
+}
+
 function genderOptions(selected, placeholder) {
   return (placeholder ? `<option value="" ${selected ? '' : 'selected'} disabled>${placeholder}</option>` : '') +
     GENDERS.map(([v, l]) => `<option value="${v}" ${v === selected ? 'selected' : ''}>${l}</option>`).join('');
@@ -114,11 +124,85 @@ function eventsOnDay(events, day) {
   return events.filter((ev) => ev.s < e && ev.e > s).sort((a, b) => a.s - b.s);
 }
 
+/** Preferencias de la pareja para elegir fechas (Ajustes, Para vernos). */
+const meetPrefs = () => C.normalizeMeetPrefs(S.couple?.meetPrefs);
+const hh = (h) => `${C.pad(h)}:00`;
+const DOW_FULL = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
+
 function best() {
-  return C.bestDates(eventsOf('me'), eventsOf('pa'), new Date(), { cycles: cyclesToShow().filter((c) => c.who === 'pa').map((c) => c.cycle) });
+  const p = meetPrefs();
+  return C.bestDates(eventsOf('me'), eventsOf('pa'), new Date(), {
+    cycles: cyclesToShow().filter((c) => c.who === 'pa').map((c) => c.cycle),
+    minHours: p.minHours, fromH: p.fromH, toH: p.toH, prefDays: p.days, avoidPeriod: p.avoidPeriod,
+  });
+}
+
+/** Una frase con lo que está buscando la agenda, según las preferencias. */
+function meetPrefsText() {
+  const p = meetPrefs();
+  const dias = p.days.length ? `Prioriza los ${p.days.map((d) => DOW_FULL[d]).join(', ').replace(/, ([^,]*)$/, ' y $1')}.` : 'Prefiere fines de semana.';
+  return `Busca días de los próximos 60 en que ambos tengan al menos ${plural(p.minHours, 'hora libre', 'horas libres')} entre las ${hh(p.fromH)} y las ${hh(p.toH)}. ${dias}${p.avoidPeriod ? ' Evita los días de periodo.' : ''}`;
 }
 
 /* ------------------------------------------------------------ vistas */
+
+/** Primer paso pendiente del alta: 'name' | 'about' | 'pair'. El nombre y los datos se piden una sola vez por cuenta. */
+function onboardStep() {
+  const ac = S.account || {};
+  if (!ac.name || obRename) return 'name';
+  if (!ac.gender || !ac.orientation) return 'about';
+  return 'pair';
+}
+
+function onboardingHtml() {
+  const ac = S.account || {};
+  const step = onboardStep();
+  const n = { name: 1, about: 2, pair: 3 }[step];
+  const dots = `<div class="steps" aria-label="Paso ${n} de 3">${[1, 2, 3].map((k) => `<i class="${k <= n ? 'on' : ''}"></i>`).join('')}</div><div class="muted small">Paso ${n} de 3</div>`;
+  if (step === 'name') {
+    const first = welcomeName || ac.name || String(S.displayName || '').split(' ')[0] || '';
+    return `${dots}<h2>¿Cómo te llamas?</h2>
+      <p class="muted" style="margin:0">Es el nombre con el que te verá tu pareja. Solo te lo preguntamos esta vez.</p>
+      <label class="field">Tu nombre<input type="text" id="wname" value="${esc(first)}" maxlength="30" autocomplete="given-name"></label>
+      <button class="btn" data-act="ob-name">Continuar</button>`;
+  }
+  if (step === 'about') {
+    return `${dots}<h2>Cuéntanos de ti, ${esc(ac.name)}</h2>
+      <div class="stack"><b>Yo soy</b>${optButtons('gender', GENDERS, obGender || ac.gender || '')}
+        <p class="muted small" style="margin:0">Tu pareja ve esto (el ciclo solo se ofrece a quien lo lleva).</p></div>
+      <div class="stack"><b>Orientación sexual</b>${optButtons('orient', ORIENTS, obOrient || ac.orientation || '')}
+        <p class="muted small" style="margin:0">Solo la ves tú: no se comparte con tu pareja. Puedes cambiar los dos en Ajustes, Perfil.</p></div>
+      <button class="btn" data-act="ob-about">Continuar</button>
+      <button class="btn ghost small" data-act="ob-rename">Cambiar mi nombre</button>`;
+  }
+  if (pairMode === 'create') {
+    return `${dots}<h2>Crear una pareja nueva</h2>
+      <p class="muted" style="margin:0">Se genera un código de 6 letras que le pasas a tu pareja.</p>
+      <div class="stack"><b>Mi pareja es</b>${optButtons('partner', GENDERS, obPartner)}</div>
+      <label class="field">Contraseña de la pareja (opcional, recomendada)
+        <input type="password" id="wcpass" value="${esc(obCpass)}" autocomplete="new-password" maxlength="60" placeholder="Evita que alguien se una con el código">
+      </label>
+      <button class="btn" data-act="create">Crear nuestra pareja</button>
+      <button class="btn ghost small" data-act="pair-mode" data-mode="">Atrás</button>`;
+  }
+  if (pairMode === 'join') {
+    return `${dots}<h2>Unirme a una pareja</h2>
+      <p class="muted" style="margin:0">Pídele a tu pareja el código que ve en Ajustes, Perfil.</p>
+      <label class="field">Código de tu pareja
+        <input type="text" id="wcode" value="${esc(obCode)}" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="ABC123">
+      </label>
+      <label class="field">Contraseña de la pareja (si la tiene)
+        <input type="password" id="wjpass" value="${esc(obJpass)}" autocomplete="off" maxlength="60">
+      </label>
+      <button class="btn" data-act="join">Unirme con el código</button>
+      <button class="btn ghost small" data-act="pair-mode" data-mode="">Atrás</button>`;
+  }
+  return `${dots}<h2>Tu pareja</h2>
+    <p class="muted" style="margin:0">¿Empiezas tú o ya te esperan?</p>
+    <button class="paircard" data-act="pair-mode" data-mode="create"><span class="seticon">${ic('heart', 22)}</span><span class="settext"><b>Crear una pareja nueva</b><span class="muted small">Obtienes un código para pasárselo a tu pareja</span></span>${ic('chevron', 18)}</button>
+    <button class="paircard" data-act="pair-mode" data-mode="join"><span class="seticon">${ic('key', 22)}</span><span class="settext"><b>Unirme a una pareja</b><span class="muted small">Con el código y la contraseña que te dio tu pareja</span></span>${ic('chevron', 18)}</button>
+    <p class="muted small" style="margin:0">Si ya tenías pareja y entras desde otro teléfono, inicia sesión con tu correo y todo vuelve solo.</p>`;
+}
 
 function viewWelcome() {
   const demo = store.kind === 'demo';
@@ -138,25 +222,7 @@ function viewWelcome() {
       ${nativeStatus?.google && firebaseConfig.googleWebClientId ? '<div class="muted small" style="text-align:center">— o —</div><button class="btn ghost" type="button" data-act="google-in"><svg class="gmark" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continuar con Google</button>' : ''}
       ${!isNative && store.kind === 'firebase' ? '<div class="muted small" style="text-align:center">— o —</div><button class="btn ghost" type="button" data-act="google-web"><svg class="gmark" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Continuar con Google</button>' : ''}`;
   } else {
-    body = `
-      <label class="field">Tu nombre
-        <input type="text" id="wname" value="${esc(welcomeName)}" maxlength="30" autocomplete="given-name">
-      </label>
-      <label class="field">Yo soy<select id="wgender">${genderOptions('', 'Elige…')}</select></label>
-      <label class="field">Mi pareja es<select id="wpartner">${genderOptions('', 'Elige…')}</select></label>
-      <label class="field">Contraseña de la pareja (opcional, recomendada)
-        <input type="password" id="wcpass" autocomplete="new-password" maxlength="60" placeholder="Evita que alguien se una con el código">
-      </label>
-      <button class="btn" data-act="create">Crear nuestra pareja</button>
-      <div class="muted small" style="text-align:center">— o, si tu pareja ya creó la suya —</div>
-      <label class="field">Código de tu pareja
-        <input type="text" id="wcode" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="ABC123">
-      </label>
-      <label class="field">Contraseña de la pareja (si la tiene)
-        <input type="password" id="wjpass" autocomplete="off" maxlength="60">
-      </label>
-      <button class="btn ghost" data-act="join">Unirme con el código</button>
-      <p class="muted small" style="margin:0">Si ya tenías pareja y entras desde otro teléfono, inicia sesión con tu correo y todo vuelve solo.</p>`;
+    body = onboardingHtml();
   }
   return `<div class="welcome">
     <div><div class="logo-sm">${ic('heart', 34, true)}</div><h1>Nosotros</h1>
@@ -259,7 +325,7 @@ function viewHome() {
     b.length
       ? `<div class="best-item top"><b>${esc(cap(fmtDay(b[0].date)))}</b><span class="muted small">${bestDetail(b[0])}</span></div>
          <div class="row wrap" style="margin-top:10px"><button class="btn small" data-act="meet-best" data-i="0">Agendar</button><button class="btn ghost small" data-act="propose" data-i="0">Proponer por mensaje</button><button class="btn ghost small" data-go="agenda">Ver más</button></div>`
-      : '<p class="muted">No encuentro un día en 60 días en que ambos tengan 3 horas libres. Conecten sus calendarios en Ajustes.</p>'
+      : `<p class="muted">No encuentro un día en 60 días en que ambos tengan ${plural(meetPrefs().minHours, 'hora libre', 'horas libres')}. Conecten sus calendarios o cambien lo que piden en Ajustes, Para vernos.</p>`
   }</div>`);
 
   // último mensaje
@@ -566,9 +632,9 @@ function viewAgenda() {
     ${upcoming.length ? `<div class="card"><h2>${ic('heart')} Próximas citas</h2>${upcoming.map(meetingCard).join('')}</div>` : ''}
     <div class="card"><h2>${ic('star')} Mejores fechas para vernos</h2>
       ${noCal ? `<p class="muted small">${!S.me?.eventsAt ? 'Conecta tu calendario' : 'Tu pareja aún no conecta el suyo'}: mientras tanto se asume que está libre. <button class="btn ghost small" data-go="ajustes" data-page="calendario">Ajustes</button></p>` : ''}
-      <p class="muted small" style="margin-top:0">Busca días de los próximos 60 en que ambos tengan al menos 3 horas libres entre las 9:00 y las 23:00. Prefiere fines de semana. Las citas que ya agendaron no cuentan como ocupado.</p>
+      <p class="muted small" style="margin-top:0">${meetPrefsText()} Las citas que ya agendaron no cuentan como ocupado. <button class="btn ghost small" data-go="ajustes" data-page="vernos">Cambiar</button></p>
       <div class="stack">${b.map((x, i) => `<div class="best-item ${i === 0 ? 'top' : ''}"><b>${esc(cap(fmtDay(x.date)))}</b><span class="muted small">${bestDetail(x)}</span>${cycleLinesHtml(x.date, false)}
-        <div class="row wrap" style="margin-top:6px"><button class="btn small" data-act="meet-best" data-i="${i}">Agendar</button><button class="btn ghost small" data-act="propose" data-i="${i}">Proponer</button><button class="btn ghost small" data-day="${C.ymd(x.date)}">Ver día</button></div></div>`).join('') || '<p class="muted">No hay días con 3 horas libres para ambos en 60 días.</p>'}</div>
+        <div class="row wrap" style="margin-top:6px"><button class="btn small" data-act="meet-best" data-i="${i}">Agendar</button><button class="btn ghost small" data-act="propose" data-i="${i}">Proponer</button><button class="btn ghost small" data-day="${C.ymd(x.date)}">Ver día</button></div></div>`).join('') || `<p class="muted">No hay días con ${plural(meetPrefs().minHours, 'hora libre', 'horas libres')} para ambos en 60 días.</p>`}</div>
     </div>`;
 }
 
@@ -730,6 +796,7 @@ const SET_PAGES = [
   ['apariencia', 'palette', 'Apariencia', 'Tema, color de la app y colores del calendario'],
   ['ubicacion', 'pin', 'Ubicación', 'Actualización automática cada 30 minutos'],
   ['calendario', 'calendar', 'Calendario', 'Tus eventos, sus nombres y las citas'],
+  ['vernos', 'star', 'Para vernos', 'Qué días priorizar y cuántas horas libres necesitan'],
   ['ciclo', 'drop', 'Ciclo menstrual', 'Seguimiento y si se comparte con tu pareja'],
   ['chat', 'chat', 'Chat y archivos', 'Descarga automática y galería'],
   ['avisos', 'bell', 'Notificaciones', 'Avisos de mensajes nuevos'],
@@ -745,7 +812,7 @@ const APP_ONLY_ROWS = { widgets: 'Los widgets', actualizar: 'La app de Android' 
 
 function viewSettings() {
   if (!settingsPage) return settingsMenu();
-  const pages = { perfil: pagePerfil, apariencia: pageApariencia, ubicacion: pageUbicacion, calendario: pageCalendario, ciclo: pageCiclo, chat: pageChat, avisos: pageAvisos, widgets: pageWidgets, seguridad: pageSeguridad, disfraz: pageDisfraz, actualizar: pageActualizar, cuenta: pageCuenta };
+  const pages = { perfil: pagePerfil, apariencia: pageApariencia, ubicacion: pageUbicacion, calendario: pageCalendario, vernos: pageVernos, ciclo: pageCiclo, chat: pageChat, avisos: pageAvisos, widgets: pageWidgets, seguridad: pageSeguridad, disfraz: pageDisfraz, actualizar: pageActualizar, cuenta: pageCuenta };
   const row = SET_PAGES.find((p) => p[0] === settingsPage);
   return `<div class="row setback"><button class="iconbtn flat" data-act="set-back" aria-label="Volver a Ajustes">${ic('back', 22)}</button><h2>${row[2]}</h2></div>${pages[settingsPage]()}`;
 }
@@ -764,6 +831,8 @@ function pagePerfil() {
   return `<div class="card stack"><h2>${ic('user')} Yo</h2>
       <label class="field">Mi nombre<input type="text" data-field="me.name" value="${esc(me.name || '')}" maxlength="30"></label>
       <label class="field">Yo soy<select data-field="me.gender">${genderOptions(me.gender || '', 'Elige…')}</select></label>
+      <label class="field">Orientación sexual<select data-field="account.orientation">${`<option value="" ${S.account?.orientation ? '' : 'selected'} disabled>Elige…</option>` + ORIENTS.map(([v, l]) => `<option value="${v}" ${v === S.account?.orientation ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <p class="muted small" style="margin:0">Tu nombre y tu género los ve tu pareja. La orientación es privada: solo la ves tú.</p>
     </div>
     <div class="card stack"><h2>${ic('heart')} Nosotros</h2>
       ${coupleType() ? `<div class="muted small">Pareja: <b>${esc(coupleType())}</b></div>` : ''}
@@ -807,13 +876,48 @@ function pageCalendario() {
 }
 
 /** Explica cuánto «aprendió» el cálculo (solo si ya hay ciclos anotados). */
+/** ¿Se puede anotar hoy como último día del periodo? (el periodo empezó hace 1 a 10 días) */
+function periodEndable(cy) {
+  if (!cy?.last) return false;
+  const n = C.diffDays(C.parseYmd(cy.last), new Date()) + 1;
+  return n >= 1 && n <= 10;
+}
+
 function learnedNote(cy) {
   if (!cy?.last) return '';
   const learned = C.learnedLen(cy);
   const said = Math.max(20, Math.min(45, Number(cy.len) || 28));
   const n = (cy.starts || []).length;
-  if (!n) return '<p class="muted small" style="margin:0">Cada vez que anotes que el periodo empezó, el cálculo aprende de tus ciclos reales y ajusta el largo.</p>';
-  return `<p class="muted small" style="margin:0">Ciclos anotados: ${n + 1}. Largo que usa el cálculo: <b>${learned} días</b>${learned !== said ? ` (tú dijiste ${said})` : ''}.</p>`;
+  if (!n) return `<p class="muted small" style="margin:0">Cada vez que anotes que el periodo empezó o terminó, el cálculo aprende de tus ciclos reales y ajusta el largo y la duración.${(cy.pdays || []).length ? ` Duración del periodo que usa el cálculo: <b>${plural(C.learnedPeriod(cy), 'día', 'días')}</b>.` : ''}</p>`;
+  const pLearned = C.learnedPeriod(cy);
+  const pSaid = Math.max(1, Math.min(10, Number(cy.period) || 5));
+  const pNote = (cy.pdays || []).length ? ` Duración del periodo que usa el cálculo: <b>${plural(pLearned, 'día', 'días')}</b>${pLearned !== pSaid ? ` (tú dijiste ${pSaid})` : ''}.` : '';
+  return `<p class="muted small" style="margin:0">Ciclos anotados: ${n + 1}. Largo que usa el cálculo: <b>${learned} días</b>${learned !== said ? ` (tú dijiste ${said})` : ''}.${pNote}</p>`;
+}
+
+/** Selector numérico propio: − valor +. `act` recibe data-k (qué ajuste), data-d (±1), data-min y data-max. */
+function stepper(act, key, value, min, max, label) {
+  return `<div class="stepper" role="group" aria-label="${esc(label)}">
+    <button type="button" class="iconbtn" data-act="${act}" data-k="${key}" data-d="-1" data-min="${min}" data-max="${max}" aria-label="Menos" ${value <= min ? 'disabled' : ''}>−</button>
+    <b>${esc(label.replace('{v}', value))}</b>
+    <button type="button" class="iconbtn" data-act="${act}" data-k="${key}" data-d="1" data-min="${min}" data-max="${max}" aria-label="Más" ${value >= max ? 'disabled' : ''}>+</button></div>`;
+}
+
+function pageVernos() {
+  const p = meetPrefs();
+  const days = [[1, 'L', 'lunes'], [2, 'M', 'martes'], [3, 'X', 'miércoles'], [4, 'J', 'jueves'], [5, 'V', 'viernes'], [6, 'S', 'sábado'], [0, 'D', 'domingo']];
+  return `<div class="card stack"><h2>${ic('star')} Qué días priorizar</h2>
+      <div class="daychips" role="group" aria-label="Días que prefieren">${days.map(([d, l, full]) => `<button type="button" class="daychip ${p.days.includes(d) ? 'on' : ''}" data-act="mp-day" data-d="${d}" aria-pressed="${p.days.includes(d)}" aria-label="${full}">${l}</button>`).join('')}</div>
+      <p class="muted small" style="margin:0">${p.days.length ? 'Esos días suben en la lista de mejores fechas.' : 'Si no eliges ninguno, se priorizan los fines de semana y un poco el viernes.'} Lo ven y lo cambian los dos.</p></div>
+    <div class="card stack"><h2>${ic('clock')} Horas libres juntos</h2>
+      ${stepper('mp-step', 'minHours', p.minHours, 1, Math.min(12, p.toH - p.fromH), 'Al menos {v} h libres')}
+      <p class="muted small" style="margin:0">Un día solo cuenta si los dos tienen un bloque libre así de largo.</p>
+      <b class="small">Horario en que pueden verse</b>
+      <div class="grid2"><div class="stack"><span class="muted small">Desde</span>${stepper('mp-step', 'fromH', p.fromH, 0, 22, '{v}:00')}</div>
+      <div class="stack"><span class="muted small">Hasta</span>${stepper('mp-step', 'toH', p.toH, 1, 24, '{v}:00')}</div></div></div>
+    <div class="card stack"><h2>${ic('drop')} Ciclo</h2>
+      <label class="check"><input type="checkbox" data-mp="avoidPeriod" ${p.avoidPeriod ? 'checked' : ''}> Evitar los días de periodo</label>
+      <p class="muted small" style="margin:0">Esos días bajan en la lista (solo si se comparte el ciclo). Si lo dejas apagado, siguen apareciendo, marcados.</p></div>`;
 }
 
 function pageCiclo() {
@@ -824,10 +928,11 @@ function pageCiclo() {
       <label class="check"><input type="checkbox" id="cyon" ${cy.last ? 'checked' : ''}> Quiero llevar mi ciclo</label>
       <div class="stack ${cy.last ? '' : 'hidden'}" id="cybox">
         <label class="field">Primer día del último periodo<input type="date" data-field="me.cycle.last" value="${esc(cy.last || '')}" max="${C.ymd(new Date())}"></label>
-        <div class="grid2"><label class="field">Duración del ciclo (días)<input type="number" data-field="me.cycle.len" min="20" max="45" value="${esc(cy.len || 28)}" inputmode="numeric"></label>
-        <label class="field">Duración del periodo<input type="number" data-field="me.cycle.period" min="1" max="10" value="${esc(cy.period || 5)}" inputmode="numeric"></label></div>
+        <div class="stack"><b>¿Cuántos días te dura la menstruación?</b>
+          <div class="opts small" role="radiogroup" aria-label="Duración del periodo">${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `<button type="button" class="opt ${n === (Number(cy.period) || 5) ? 'on' : ''}" role="radio" aria-checked="${n === (Number(cy.period) || 5)}" data-act="cy-period" data-n="${n}">${n}</button>`).join('')}</div></div>
+        <div class="stack"><b>Duración del ciclo</b>${stepper('cy-len', 'len', Number(cy.len) || 28, 20, 45, '{v} días')}</div>
         <label class="check"><input type="checkbox" data-field="me.cycleShare" ${me.cycleShare ? 'checked' : ''}> Compartirlo con mi pareja (los dos ven periodo, días fértiles y ovulación en la agenda)</label>
-        <button class="btn ghost small" data-act="cycle-today">El periodo empezó hoy</button>
+        <div class="row wrap"><button class="btn ghost small" data-act="cycle-today">El periodo empezó hoy</button>${periodEndable(cy) ? '<button class="btn ghost small" data-act="cycle-end">El periodo terminó hoy</button>' : ''}</div>
         ${learnedNote(cy)}</div></div>`;
 }
 
@@ -1062,7 +1167,7 @@ const TIPS = [
   'En el chat, el clip te deja mandar una foto o video de una sola vez.',
   'Al agendar una cita ves en qué parte del ciclo cae ese día.',
   'Con el micrófono del chat mandas audios.',
-  'La agenda busca los días en que los dos tienen al menos 3 horas libres.',
+  'La agenda busca los días en que los dos tienen libres las horas que pidan; en Ajustes, Para vernos, eliges qué días priorizar.',
   'Un toque en «+1 ep.» y tu pareja sabe en qué capítulo van.',
   'Con la ubicación automática, la app se actualiza sola cada 30 minutos, aunque esté cerrada.',
   'Puedes cambiar los colores de la app en Ajustes, en Apariencia.',
@@ -1449,6 +1554,7 @@ function onSnapshot(next) {
   setTimeout(autoCheckUpdate, 4000);
   pullSettings();
   pushWidgets();
+  syncAccountFromPeople();
   if (before && !next.coupleId && next.coupleGone) {
     toast('Tu pareja eliminó la pareja');
     afterCoupleGone(before);
@@ -1514,6 +1620,19 @@ function askSheet({ title, body, ok, type = '', tone = 'danger' }) {
 }
 
 /** Este teléfono se quedó sin pareja (la eliminaste o la eliminó tu pareja): se limpia todo lo local. */
+let acctSyncing = false;
+/** Quien ya tenía pareja antes de existir los datos de la cuenta: se copian su nombre y género (no se le vuelven a pedir). */
+function syncAccountFromPeople() {
+  if (acctSyncing || !S.accountReady || !S.coupleId || !S.me) return;
+  const ac = S.account || {};
+  const patch = {};
+  if (!ac.name && S.me.name) patch.name = S.me.name;
+  if (!ac.gender && S.me.gender) patch.gender = S.me.gender;
+  if (!Object.keys(patch).length) return;
+  acctSyncing = true;
+  store.saveAccount(patch).catch(() => {}).finally(() => { acctSyncing = false; });
+}
+
 async function afterCoupleGone(code) {
   if (isNative) {
     await native.disableAuto();
@@ -1545,6 +1664,11 @@ function setPath(obj, path, val) {
 }
 
 async function saveField(path, value) {
+  if (path.startsWith('account.')) return store.saveAccount({ [path.slice(8)]: value });
+  if (path === 'me.name' || path === 'me.gender') {
+    // el nombre y el género también quedan en la cuenta, para no volver a pedirlos con otra pareja
+    store.saveAccount({ [path.slice(3)]: value }).catch(() => {});
+  }
   if (path === 'me.shareLoc' && value === false) {
     // dejar de compartir: se borra también la ubicación que ya estaba guardada
     return store.updateMe({ shareLoc: false, lat: null, lon: null, city: null, locAt: null });
@@ -1638,12 +1762,12 @@ function saveMeetingFromForm() {
   }, f.id ? 'Cita actualizada' : 'Cita agendada').then(() => { render(); syncMeetingsToCalendar(); });
 }
 
+/** Datos del alta que ya tiene la cuenta (nombre, género); si falta algo, vuelve al paso que corresponde. */
 function readSetup() {
-  const name = document.getElementById('wname').value.trim();
-  const gender = document.getElementById('wgender').value;
-  if (!name) throw new Error('Escribe tu nombre');
-  if (!gender) throw new Error('Elige cómo te identificas');
-  return { name, gender };
+  const ac = S.account || {};
+  if (!ac.name) throw new Error('Escribe tu nombre');
+  if (!ac.gender) throw new Error('Elige cómo te identificas');
+  return { name: ac.name, gender: ac.gender };
 }
 
 const actions = {
@@ -1656,22 +1780,50 @@ const actions = {
     if (!email) throw new Error('Escribe tu correo arriba y vuelve a tocar');
     await store.resetPassword(email);
   }, 'Te enviamos un correo para cambiar la contraseña'),
+  'ob-name': () => run(async () => {
+    const name = document.getElementById('wname').value.trim();
+    if (!name) throw new Error('Escribe tu nombre');
+    welcomeName = '';
+    obRename = false;
+    await store.saveAccount({ name });
+    render();
+  }),
+  'ob-pick': (el) => {
+    const k = el.dataset.k;
+    if (k === 'gender') obGender = el.dataset.v;
+    else if (k === 'orient') obOrient = el.dataset.v;
+    else if (k === 'partner') obPartner = el.dataset.v;
+    render();
+  },
+  'ob-about': () => run(async () => {
+    const ac = S.account || {};
+    const gender = obGender || ac.gender;
+    const orientation = obOrient || ac.orientation;
+    if (!gender) throw new Error('Elige cómo te identificas');
+    if (!orientation) throw new Error('Elige tu orientación sexual (o «Prefiero no decir»)');
+    await store.saveAccount({ gender, orientation });
+    render();
+  }),
+  'ob-rename': () => { welcomeName = S.account?.name || ''; obRename = true; render(); },
+  'pair-mode': (el) => { pairMode = el.dataset.mode || null; render(); },
   create: () => run(async () => {
     const { name, gender } = readSetup();
-    const partnerGender = document.getElementById('wpartner').value;
+    const partnerGender = obPartner;
     if (!partnerGender) throw new Error('Elige cómo es tu pareja');
     tab = 'ajustes';
     settingsPage = 'perfil';
-    const pass = document.getElementById('wcpass').value;
+    const pass = obCpass;
     if (pass && pass.length < 4) throw new Error('La contraseña de la pareja debe tener al menos 4 caracteres');
     await store.createCouple({ name, gender, hideTitles: false, cycleShare: true }, { partnerGender }, pass);
+    pairMode = null; obCpass = ''; obPartner = '';
     toast('Pareja creada. Pásale el código a tu pareja desde Ajustes.');
   }),
   join: () => run(async () => {
     const { name, gender } = readSetup();
-    const code = document.getElementById('wcode').value.trim();
+    const code = obCode.trim();
     if (code.length !== 6) throw new Error('El código tiene 6 caracteres');
-    await store.joinCouple(code, { name, gender, hideTitles: false, cycleShare: true }, document.getElementById('wjpass').value);
+    await store.joinCouple(code, { name, gender, hideTitles: false, cycleShare: true }, obJpass);
+    pairMode = null; obCode = ''; obJpass = '';
     tab = 'inicio';
   }),
   logout: () => {
@@ -1834,6 +1986,29 @@ const actions = {
     const n = await store.connectCalendar();
     toast(`Calendario sincronizado (${n} eventos)`);
   }),
+  'cy-period': (el) => run(() => store.updateMe({ cycle: { ...(S.me?.cycle || {}), period: Number(el.dataset.n) } }), 'Guardado'),
+  'cy-len': (el) => {
+    const v = Math.max(Number(el.dataset.min), Math.min(Number(el.dataset.max), (Number(S.me?.cycle?.len) || 28) + Number(el.dataset.d)));
+    return run(() => store.updateMe({ cycle: { ...(S.me?.cycle || {}), len: v } }));
+  },
+  'cycle-end': () => run(async () => {
+    const next = C.withPeriodEnd(S.me?.cycle, C.ymd(new Date()));
+    if (!next) throw new Error('Para anotarlo, el periodo tiene que haber empezado hace 10 días o menos');
+    await store.updateMe({ cycle: next });
+    toast(`Anotado: tu periodo duró ${plural(next.pdays[next.pdays.length - 1], 'día', 'días')}. El cálculo se adapta.`);
+  }),
+  'mp-day': (el) => {
+    const p = meetPrefs();
+    const d = Number(el.dataset.d);
+    const days = p.days.includes(d) ? p.days.filter((x) => x !== d) : [...p.days, d];
+    return run(() => store.updateCouple({ meetPrefs: { ...p, days } })).then(render);
+  },
+  'mp-step': (el) => {
+    const p = meetPrefs();
+    const k = el.dataset.k;
+    const v = Math.max(Number(el.dataset.min), Math.min(Number(el.dataset.max), p[k] + Number(el.dataset.d)));
+    return run(() => store.updateCouple({ meetPrefs: C.normalizeMeetPrefs({ ...p, [k]: v }) })).then(render);
+  },
   'cycle-today': () => run(() => store.updateMe({ cycle: C.withNewPeriod(S.me?.cycle, C.ymd(new Date())) }), 'Anotado: el cálculo aprende de tus ciclos reales'),
   notif: () => run(async () => {
     if (!('Notification' in window)) throw new Error('Tu navegador no admite avisos');
@@ -1991,6 +2166,12 @@ $app.addEventListener('change', (e) => {
     }, want ? 'Bloqueo activado' : 'Bloqueo desactivado');
     return;
   }
+  if (el.dataset.mp) {
+    currentKey = 'mp:' + el.dataset.mp;
+    const p = meetPrefs();
+    run(() => store.updateCouple({ meetPrefs: { ...p, [el.dataset.mp]: el.checked } }), 'Guardado').then(render);
+    return;
+  }
   if (el.closest('#meetform')) {
     captureMeetForm();
     const box = document.getElementById('meetphase');
@@ -2037,6 +2218,9 @@ $app.addEventListener('input', (e) => {
     searchTimer = setTimeout(() => searchShowsNow(q), 350);
   }
   if (e.target.id === 'wname') welcomeName = e.target.value;
+  if (e.target.id === 'wcpass') obCpass = e.target.value;
+  if (e.target.id === 'wcode') obCode = e.target.value;
+  if (e.target.id === 'wjpass') obJpass = e.target.value;
 });
 
 $app.addEventListener('submit', (e) => {

@@ -417,3 +417,21 @@ main.chatmain.enter-r, main.chatmain.enter-l { animation: fadeIn 0.18s ease-out;
 /* Barra de descarga de la actualización */
 .updbar { height: 10px; border-radius: 999px; background: var(--surface2); overflow: hidden; }
 .updbar > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
+
+/* Alta guiada, opciones y selectores propios (nada de widgets por defecto) */
+.steps { display: flex; gap: 6px; }
+.steps i { flex: 1; height: 5px; border-radius: 999px; background: var(--surface2); }
+.steps i.on { background: var(--accent); }
+.opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.opt { border: 1px solid var(--line); background: var(--surface2); color: var(--text); padding: 9px 14px; border-radius: 999px; font-weight: 600; cursor: pointer; min-height: 40px; }
+.opt.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.opts.small .opt { min-width: 44px; padding: 9px 0; text-align: center; }
+.paircard { display: grid; grid-template-columns: 40px 1fr 18px; gap: 12px; align-items: center; text-align: left; width: 100%; border: 1px solid var(--line); background: var(--surface); color: var(--text); padding: 14px; border-radius: var(--radius); cursor: pointer; min-height: 68px; box-shadow: var(--shadow); }
+.paircard:active { background: var(--surface2); }
+.stepper { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface2); border-radius: 14px; padding: 4px; }
+.stepper b { flex: 1; text-align: center; font-weight: 650; }
+.stepper .iconbtn { background: var(--surface); font-size: 1.4rem; font-weight: 600; }
+.stepper .iconbtn:disabled { opacity: 0.35; cursor: default; }
+.daychips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.daychip { border: 1px solid var(--line); background: var(--surface2); color: var(--text); border-radius: 12px; min-height: 46px; font-weight: 700; cursor: pointer; }
+.daychip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
