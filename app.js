@@ -946,7 +946,7 @@ function appOnlyBtn(label, what, cls = 'btn ghost') {
 async function askApp(what) {
   const go = await askSheet({
     title: 'Solo en la app de Android',
-    body: `${what} solo está disponible en la app de Android. ¿Quieres descargarla ahora?`,
+    body: `Para usar esto necesitas la app de Android (${what}). ¿Quieres descargarla ahora?`,
     ok: 'Descargar',
     tone: 'primary',
   });
