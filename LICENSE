@@ -1,0 +1,61 @@
+Copyright (c) 2026 MiInfcl. Todos los derechos reservados.
+Copyright (c) 2026 MiInfcl. All rights reserved.
+
+AVISO DE COPYRIGHT Y LICENCIA PROPIETARIA
+
+«Nosotros» (la aplicación web, la aplicación de Android, su código fuente, diseño,
+íconos, textos, binarios y demás materiales de este repositorio; en adelante, «el
+Software») es propiedad exclusiva de MiInfcl («el Titular»).
+
+1. SIN LICENCIA. No se concede ninguna licencia, expresa ni implícita, sobre el Software,
+   salvo el permiso limitado del punto 2. Todo derecho no concedido expresamente queda
+   reservado por el Titular.
+
+2. USO PERSONAL PERMITIDO. Puedes usar la versión web oficial (https://nosotros-app.xyz)
+   y descargar e instalar la aplicación oficial de Android desde los «Releases» del
+   repositorio https://github.com/MiInfcl/nosotros-android, solo para tu uso personal
+   y no comercial.
+
+3. PROHIBIDO sin autorización previa y por escrito del Titular:
+   a) copiar o reproducir el Software, total o parcialmente;
+   b) modificarlo, adaptarlo, traducirlo o crear obras derivadas;
+   c) distribuirlo, publicarlo, subirlo a otros sitios, sublicenciarlo, venderlo,
+      alquilarlo o prestarlo, ni ofrecer versiones propias o modificadas;
+   d) descompilar, desensamblar o aplicar ingeniería inversa al Software, salvo en la
+      medida en que la ley lo permita de forma imperativa;
+   e) usarlo con fines comerciales, ni para entrenar modelos de inteligencia artificial;
+   f) quitar o alterar este aviso o cualquier aviso de propiedad;
+   g) usar su nombre, ícono, diseño o marca como propios.
+
+4. CÓDIGO VISIBLE NO ES LICENCIA. Que el repositorio sea público es solo para consulta.
+   No implica ninguna licencia de uso, copia ni modificación. Lo único que se permite
+   además es lo que los Términos de Servicio de GitHub otorgan a quienes usan GitHub
+   (ver el repositorio y bifurcarlo dentro de GitHub); eso no autoriza nada de lo
+   prohibido en el punto 3.
+
+5. TERMINACIÓN. Cualquier incumplimiento pone fin automáticamente al permiso del punto 2.
+
+6. SIN GARANTÍA. EL SOFTWARE SE ENTREGA «TAL CUAL», SIN GARANTÍA DE NINGÚN TIPO, EXPRESA
+   O IMPLÍCITA, INCLUIDAS LAS DE COMERCIABILIDAD, IDONEIDAD PARA UN FIN DETERMINADO Y NO
+   INFRACCIÓN. LAS ESTIMACIONES DEL CICLO MENSTRUAL SON ORIENTATIVAS, NO SON UN MÉTODO
+   ANTICONCEPTIVO NI UN CONSEJO MÉDICO.
+
+7. LIMITACIÓN DE RESPONSABILIDAD. EN LA MEDIDA QUE LA LEY LO PERMITA, EL TITULAR NO SERÁ
+   RESPONSABLE DE DAÑOS DERIVADOS DEL USO O LA IMPOSIBILIDAD DE USAR EL SOFTWARE.
+
+8. PERMISOS. Para pedir una autorización escrita, escribe al Titular en
+   https://github.com/MiInfcl
+
+---------------------------------------------------------------------------------------
+
+ENGLISH SUMMARY (the Spanish text above prevails if there is any difference)
+
+Copyright (c) 2026 MiInfcl. All rights reserved. This software ("Nosotros": web app,
+Android app, source code, design, icons, text and binaries in this repository) is
+proprietary. No license is granted except to use the official web app and the official
+Android app for personal, non-commercial use. Without the owner's prior written
+permission you may not copy, modify, create derivative works from, distribute, publish,
+sublicense, sell, reverse engineer, use commercially, or use for AI training any part of
+it. The source code is public for viewing only; the only additional rights are those
+GitHub's Terms of Service grant to GitHub users (viewing and forking within GitHub).
+Provided "AS IS", without warranty of any kind.
