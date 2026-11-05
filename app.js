@@ -129,7 +129,8 @@ function viewWelcome() {
         <button class="btn" type="submit">${signup ? 'Crear cuenta' : 'Entrar'}</button>
         ${signup ? '' : '<button class="btn ghost small" type="button" data-act="auth-reset">Olvidé mi contraseña</button>'}
       </form>
-      ${nativeStatus?.google && firebaseConfig.googleWebClientId ? '<div class="muted small" style="text-align:center">— o —</div><button class="btn ghost" type="button" data-act="google-in"><span class="gmark">G</span> Continuar con Google</button>' : ''}`;
+      ${nativeStatus?.google && firebaseConfig.googleWebClientId ? '<div class="muted small" style="text-align:center">— o —</div><button class="btn ghost" type="button" data-act="google-in"><span class="gmark">G</span> Continuar con Google</button>' : ''}
+      ${!isNative && store.kind === 'firebase' ? '<div class="muted small" style="text-align:center">— o —</div><button class="btn ghost" type="button" data-act="google-web"><span class="gmark">G</span> Continuar con Google</button>' : ''}`;
   } else {
     body = `
       <label class="field">Tu nombre
@@ -1773,6 +1774,7 @@ const actions = {
     if (!r.ok) throw new Error(r.error === 'cancel' ? 'Se canceló el inicio con Google' : 'No se pudo iniciar sesión con Google');
     await store.signInWithGoogle(r.idToken);
   }),
+  'google-web': () => run(() => store.signInWithGooglePopup()),
   leave: () => {
     if (confirm(store.kind === 'demo' ? '¿Borrar los datos de la demo?' : '¿Salir y quitar este teléfono de la pareja?')) {
       run(async () => {
