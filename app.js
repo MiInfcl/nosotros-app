@@ -132,7 +132,7 @@ const DOW_FULL = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'vierne
 function best() {
   const p = meetPrefs();
   return C.bestDates(eventsOf('me'), eventsOf('pa'), new Date(), {
-    cycles: cyclesToShow().filter((c) => c.who === 'pa').map((c) => c.cycle),
+    cycles: cyclesToShow().map((c) => c.cycle),
     minHours: p.minHours, fromH: p.fromH, toH: p.toH, prefDays: p.days, avoidPeriod: p.avoidPeriod,
   });
 }
@@ -260,7 +260,7 @@ function viewHome() {
       <p class="muted">La versión ${esc(updateState.info.name)} de Nosotros está lista para instalar.</p><button class="btn" data-act="upd-open">Ver y actualizar</button></div>`);
   }
   if (!S.partner) {
-    cards.push(`<div class="card"><h2>⏳ Esperando a tu pareja</h2>
+    cards.push(`<div class="card"><h2>${ic('clock')} Esperando a tu pareja</h2>
       <p class="muted">Pásale este código para que se una:</p><div class="code">${esc(S.coupleId)}</div></div>`);
   }
   // distancia
@@ -311,7 +311,7 @@ function viewHome() {
   const nextMeet = upcomingMeetings()[0];
   if (nextMeet) {
     const day = new Date(nextMeet.s);
-    const dd = C.diffDays(now, day);
+    const dd = Math.max(0, C.diffDays(now, day));
     cards.push(`<div class="card"><h2>${ic('heart')} Próxima cita</h2>
       <div class="big">${dd === 0 ? '¡Hoy!' : `${dd} <small>${dd === 1 ? 'día' : 'días'}</small>`}</div>
       <div class="muted small">${esc(cap(fmtDay(day)))} · ${fmtTime(nextMeet.s)}–${fmtTime(nextMeet.e)}${nextMeet.note ? ' · ' + esc(nextMeet.note) : ''}</div>
@@ -350,7 +350,7 @@ function cycleCard({ who, name, cycle }, now) {
     <div class="row between"><span class="chip ${chip}">${ph.nombre}</span><span class="muted small">Día ${info.dayOfCycle} de ${info.len}</span></div>
     <div class="bar" style="margin:10px 0" aria-hidden="true">
       <span style="width:${pct(info.period)};background:var(--period)"></span>
-      <span style="width:${pct(info.len - 14 - 5 - info.period + 1)};background:var(--surface2)"></span>
+      <span style="width:${pct(Math.max(0, info.len - 19 - info.period))};background:var(--surface2)"></span>
       <span style="width:${pct(6)};background:var(--fertile)"></span>
       <span style="flex:1;background:var(--surface2);opacity:.6"></span></div>
     <p style="margin:0">${ph.nota}</p>
@@ -925,8 +925,8 @@ function pageCiclo() {
   const cy = me.cycle || {};
   if (me.gender === 'hombre') return '<div class="card"><p class="muted" style="margin:0">Esta sección es para quien lleva ciclo. Lo que tu pareja comparta lo ves en la agenda.</p></div>';
   return `<div class="card stack"><h2>${ic('drop')} Ciclo menstrual</h2>
-      <label class="check"><input type="checkbox" id="cyon" ${cy.last ? 'checked' : ''}> Quiero llevar mi ciclo</label>
-      <div class="stack ${cy.last ? '' : 'hidden'}" id="cybox">
+      <label class="check"><input type="checkbox" id="cyon" ${me.cycle ? 'checked' : ''}> Quiero llevar mi ciclo</label>
+      <div class="stack ${me.cycle ? '' : 'hidden'}" id="cybox">
         <label class="field">Primer día del último periodo<input type="date" data-field="me.cycle.last" value="${esc(cy.last || '')}" max="${C.ymd(new Date())}"></label>
         <div class="stack"><b>¿Cuántos días te dura la menstruación?</b>
           <div class="opts small" role="radiogroup" aria-label="Duración del periodo">${Array.from({ length: 10 }, (_, i) => i + 1).map((n) => `<button type="button" class="opt ${n === (Number(cy.period) || 5) ? 'on' : ''}" role="radio" aria-checked="${n === (Number(cy.period) || 5)}" data-act="cy-period" data-n="${n}">${n}</button>`).join('')}</div></div>
@@ -2135,7 +2135,7 @@ $app.addEventListener('change', (e) => {
     document.getElementById('cybox').classList.toggle('hidden', !el.checked);
     currentKey = 'chg:cyon';
     if (!el.checked) run(() => store.updateMe({ cycle: null, cycleShare: false }), 'Ciclo desactivado');
-    else run(() => store.updateMe({ cycleShare: true }));
+    else run(() => store.updateMe({ cycle: S.me?.cycle || { len: 28, period: 5 }, cycleShare: true }));
     return;
   }
   if (el.dataset.pref) {
