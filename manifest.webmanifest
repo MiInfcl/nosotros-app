@@ -1,0 +1,10 @@
+{
+  "name": "Nosotros — app para parejas",
+  "short_name": "Nosotros",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fff1f2",
+  "theme_color": "#e11d48",
+  "lang": "es",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
